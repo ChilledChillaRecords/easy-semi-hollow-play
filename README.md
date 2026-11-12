@@ -10,4 +10,6 @@ Play with your computer keyboard (A–L white keys, W E T Y/Z U O P black keys, 
 The plug-in for your DAW (VST3, Audio Unit, standalone; Windows and macOS) is available at
 [chilledchillarecords.com/easy-semi-hollow](https://chilledchillarecords.com/easy-semi-hollow) with a free 7-day trial.
 
+The user manual (PDF, English) is here too: [Easy-Semi-Hollow-Manual.pdf](Easy-Semi-Hollow-Manual.pdf).
+
 © 2026 Chilled Chilla Records. All rights reserved. This repository only hosts the built page; it is not open source.
