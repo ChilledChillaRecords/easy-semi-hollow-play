@@ -212,7 +212,7 @@ canvas { display: block; }
       <button id="uiEasy" class="abs btn seg l on" style="left:878px; top:14px; width:74px; height:30px" type="button" title="Easy view: just what you need to play - tone, chords, room, space and volume">EASY</button>
       <button id="uiAdv" class="abs btn seg r" style="left:952px; top:14px; width:92px; height:30px" type="button" title="Advanced view: every detail - body and strum knobs and 43 switches for guitar, hands, details, room and space">ADVANCED</button>
       <canvas id="meterC" class="abs" width="128" height="16"></canvas>
-      <div id="version" class="abs">v1.6.2</div>
+      <div id="version" class="abs">v1.6.3</div>
 
       <div id="scene" class="abs">
         <canvas id="sceneC" width="1172" height="654" role="img" aria-label="A cozy Christmas living room at night: fireplace, candles, a sleeping chinchilla, the guitar on its stand by the snowy window, the tree"></canvas>
@@ -293,7 +293,7 @@ canvas { display: block; }
         <div class="card"><h3>Guitar</h3>
           <p>Under <span class="p">GUITAR</span>: <span class="p">SWELL</span> fades notes in like a volume pedal, <span class="p">SUSTAIN</span> lets held notes ring on, and you choose the pickup (<span class="p">HUMBUCKER</span> or <span class="p">P-90</span>) and the strings (<span class="p">FLATWOUND</span> or <span class="p">ROUNDWOUND</span>).</p></div>
         <div class="card"><h3>Detail</h3>
-          <p>The DETAIL tab adds what a real player does between the notes. <span class="p">REGRIP</span> plays chord changes as a sequence: common notes stay held, the other fingers let go one by one and the new ones land just before the stroke, so a hard change lands a few ms late (more with <span class="p">LOOSE</span>). <span class="p">GHOST</span> keeps the strumming hand moving when you let go, now and then with a muted scratch. <span class="p">RELEASE</span> adds the dull plop and skin click of a finger leaving the fret.</p>
+          <p>The DETAIL tab adds what a real player does between the notes. <span class="p">REGRIP</span> plays chord changes as a sequence: common notes stay held, the other fingers let go one by one and the new ones land just before the stroke, so a hard change lands a few ms late (more with <span class="p">LOOSE</span>). <span class="p">GHOST</span> keeps the strumming hand moving when you let go, now and then with a muted scratch. <span class="p">RELEASE</span> adds the faint skin click of a finger leaving the fret.</p>
           <p><span class="p">PICK</span> models the pick contact: it scrapes from the first touch, hard strokes push shorter and the hand sits a little differently every time, so no two strokes sound the same. <span class="p">PICKUP HUM</span>, <span class="p">MICROPHONIC</span> and <span class="p">RATTLE</span> add mains hum (it drops while your hands touch the strings), a microphonic pickup and buzzing hardware.</p></div>
         <div class="card"><h3>Noise FX and views</h3>
           <p><span class="p">NOISE FX</span> at the top switches every background noise at once: fireplace, wind and room tone, ocean waves, breathing and chair, vinyl crackle, tape hiss, amp and pickup hum. The guitar's own sounds stay.</p>
@@ -904,8 +904,9 @@ class GuitarString {
       this.releaseLeft = (0.35 * this.fs) | 0;
       const thump = (!ctx || ctx.noiseOn) && this.fret > 0 && this.msLevel > 1e-6 && !this.stOn;   // STEEL: kein Finger auf einem Bund
       // RELEASE (1.5): der Finger loest sich vom Bund (nicht bei Flageoletts - dort liegt kein Finger auf)
-      if (ctx && ctx.releaseOn && this.fret > 0 && this.msLevel > 1e-6 && !this.stOn && this.noteKind !== 3) this.startRelease(ctx, false);
-      else this.setLossTargetsDamped();
+      // 1.6.3: nur noch der Hautklick, kein Plopp der Leersaite (StringModel.h: requestMute); die Hand daempft wie ohne RELEASE
+      if (ctx && ctx.releaseOn && this.fret > 0 && this.msLevel > 1e-6 && !this.stOn && this.noteKind !== 3) this.startRelease(ctx, false, false);
+      this.setLossTargetsDamped();
       if (thump) {
         this.thumpLeft = (0.006 * this.fs) | 0; this.thumpTotal = this.thumpLeft;
         this.thumpAmp = Math.sqrt(this.msLevel) * 0.10;
@@ -1008,13 +1009,7 @@ class GuitarString {
       this.slideRound = !!ctx && ctx.strings === 1 && this.idx <= 3;
       if (this.slideRound) this.slideNoiseAmp *= 1.8;
       this.advanceSlideStep();
-      if (ctx && ctx.squeakOn && this.idx <= 3) {
-        // Argumente in float wie in C++ (daran haengt der Pulstakt, siehe runSqueak)
-        const f = Math.fround;
-        const dist = kScaleLength * Math.abs(Math.pow(2, -from / 12) - Math.pow(2, -newFret / 12));
-        const durS = f(f(f(this.slideSteps * this.slideStepLen) / f(this.fs)) + f(0.02));
-        this.requestSqueak(f(dist), durS, f(f(kSqueakSlide) * f(0.5 + f(0.5 * f(clamp(velocity, 0, 1))))), ctx);
-      }
+      // 1.6.3: beim Slide kein Squeak mehr (StringModel.h: requestSlide) - es bleibt das leise Wischen
     }
   }
   // STEEL (1.4): der Bar gleitet auf toFret (StringModel.h: requestGlide) - shape 0 Bar, 1 Fall-off, 2 Pedal
@@ -1484,7 +1479,7 @@ class GuitarString {
     --this.thumpLeft;
   }
   // RELEASE (1.5): der Finger loest sich vom Bund (StringModel.h: startRelease) - sieben Zuege je Loesen
-  startRelease(ctx, lift) {
+  startRelease(ctx, lift, plop = true) {
     const F = Math.fround, rr = this.releaseRng;
     const rT = rr.uni(), rA = rr.uni(), rP = rr.uni(), rS = rr.uni(), rC = rr.uni(), rF = rr.uni(), rL = rr.uni();
     ++this.dbgReleases;
@@ -1493,19 +1488,21 @@ class GuitarString {
     const glideLen = Math.max(1, (tg * this.fs) | 0);
     const noteLen = this.onsetAge / this.fs;
     const level = Math.sqrt(this.msLevel);
-    this.fret = 0;
     this.slideSteps = 0; this.slideNoiseLeft = 0;   // der Finger verlaesst die Saite - ein Rutscher endet hier
-    this.startGlide(this.noteN(0), glideLen);
-    const f0 = this.fs / this.noteN(0);
-    const sigma = att * 0.11512925464970229 / tg;      // dB -> 1/s
-    [this.tgtB0, this.tgtA1] = designLossFilter(f0, sigma, 3e-4 * this.hfDampCached, this.fs);
-    [this.tgtB0H, this.tgtA1H] = designLossFilter(f0, sigma, 3e-4 * this.hfDampCached, this.fs);
-    this.lossRate = this.rateFast;
-    this.relLift = lift;
-    this.relStage = 1;
-    this.relLeft = glideLen;
-    this.relPlopSigma = 45 + 30 * rP;
-    this.relPlopLen = Math.max(1, ((0.030 + 0.020 * rS) * this.fs) | 0);
+    if (plop) {     // 1.6.3: nur noch beim Abheben (CHANGES, lift)
+      this.fret = 0;
+      this.startGlide(this.noteN(0), glideLen);
+      const f0 = this.fs / this.noteN(0);
+      const sigma = att * 0.11512925464970229 / tg;      // dB -> 1/s
+      [this.tgtB0, this.tgtA1] = designLossFilter(f0, sigma, 3e-4 * this.hfDampCached, this.fs);
+      [this.tgtB0H, this.tgtA1H] = designLossFilter(f0, sigma, 3e-4 * this.hfDampCached, this.fs);
+      this.lossRate = this.rateFast;
+      this.relLift = lift;
+      this.relStage = 1;
+      this.relLeft = glideLen;
+      this.relPlopSigma = 45 + 30 * rP;
+      this.relPlopLen = Math.max(1, ((0.030 + 0.020 * rS) * this.fs) | 0);
+    }
     let click;
     if (noteLen < 0.08) { this.shortToggle = !this.shortToggle; click = this.shortToggle; }
     else click = noteLen <= 4.0;
@@ -4630,7 +4627,7 @@ class ChordEngine {
     if (rp.tFirstLand >= 0) return rp.tFirstLand;
     return rp.tFrom + Math.trunc((rp.tS - rp.tFrom) / 2);
   }
-  // REGRIP ohne CHANGES: der Finger daempft beim Loesen (mit RELEASE: Plopp der Leersaite)
+  // REGRIP ohne CHANGES: der Finger daempft beim Loesen (mit RELEASE seit 1.6.3 nur der Hautklick)
   regripPlain(prev, f, rp) {
     let handled = 0;
     for (let s = 0; s < 6; ++s) {
@@ -7411,8 +7408,9 @@ class GuitarString {
       this.releaseLeft = (0.35 * this.fs) | 0;
       const thump = (!ctx || ctx.noiseOn) && this.fret > 0 && this.msLevel > 1e-6 && !this.stOn;   // STEEL: kein Finger auf einem Bund
       // RELEASE (1.5): der Finger loest sich vom Bund (nicht bei Flageoletts - dort liegt kein Finger auf)
-      if (ctx && ctx.releaseOn && this.fret > 0 && this.msLevel > 1e-6 && !this.stOn && this.noteKind !== 3) this.startRelease(ctx, false);
-      else this.setLossTargetsDamped();
+      // 1.6.3: nur noch der Hautklick, kein Plopp der Leersaite (StringModel.h: requestMute); die Hand daempft wie ohne RELEASE
+      if (ctx && ctx.releaseOn && this.fret > 0 && this.msLevel > 1e-6 && !this.stOn && this.noteKind !== 3) this.startRelease(ctx, false, false);
+      this.setLossTargetsDamped();
       if (thump) {
         this.thumpLeft = (0.006 * this.fs) | 0; this.thumpTotal = this.thumpLeft;
         this.thumpAmp = Math.sqrt(this.msLevel) * 0.10;
@@ -7515,13 +7513,7 @@ class GuitarString {
       this.slideRound = !!ctx && ctx.strings === 1 && this.idx <= 3;
       if (this.slideRound) this.slideNoiseAmp *= 1.8;
       this.advanceSlideStep();
-      if (ctx && ctx.squeakOn && this.idx <= 3) {
-        // Argumente in float wie in C++ (daran haengt der Pulstakt, siehe runSqueak)
-        const f = Math.fround;
-        const dist = kScaleLength * Math.abs(Math.pow(2, -from / 12) - Math.pow(2, -newFret / 12));
-        const durS = f(f(f(this.slideSteps * this.slideStepLen) / f(this.fs)) + f(0.02));
-        this.requestSqueak(f(dist), durS, f(f(kSqueakSlide) * f(0.5 + f(0.5 * f(clamp(velocity, 0, 1))))), ctx);
-      }
+      // 1.6.3: beim Slide kein Squeak mehr (StringModel.h: requestSlide) - es bleibt das leise Wischen
     }
   }
   // STEEL (1.4): der Bar gleitet auf toFret (StringModel.h: requestGlide) - shape 0 Bar, 1 Fall-off, 2 Pedal
@@ -7991,7 +7983,7 @@ class GuitarString {
     --this.thumpLeft;
   }
   // RELEASE (1.5): der Finger loest sich vom Bund (StringModel.h: startRelease) - sieben Zuege je Loesen
-  startRelease(ctx, lift) {
+  startRelease(ctx, lift, plop = true) {
     const F = Math.fround, rr = this.releaseRng;
     const rT = rr.uni(), rA = rr.uni(), rP = rr.uni(), rS = rr.uni(), rC = rr.uni(), rF = rr.uni(), rL = rr.uni();
     ++this.dbgReleases;
@@ -8000,19 +7992,21 @@ class GuitarString {
     const glideLen = Math.max(1, (tg * this.fs) | 0);
     const noteLen = this.onsetAge / this.fs;
     const level = Math.sqrt(this.msLevel);
-    this.fret = 0;
     this.slideSteps = 0; this.slideNoiseLeft = 0;   // der Finger verlaesst die Saite - ein Rutscher endet hier
-    this.startGlide(this.noteN(0), glideLen);
-    const f0 = this.fs / this.noteN(0);
-    const sigma = att * 0.11512925464970229 / tg;      // dB -> 1/s
-    [this.tgtB0, this.tgtA1] = designLossFilter(f0, sigma, 3e-4 * this.hfDampCached, this.fs);
-    [this.tgtB0H, this.tgtA1H] = designLossFilter(f0, sigma, 3e-4 * this.hfDampCached, this.fs);
-    this.lossRate = this.rateFast;
-    this.relLift = lift;
-    this.relStage = 1;
-    this.relLeft = glideLen;
-    this.relPlopSigma = 45 + 30 * rP;
-    this.relPlopLen = Math.max(1, ((0.030 + 0.020 * rS) * this.fs) | 0);
+    if (plop) {     // 1.6.3: nur noch beim Abheben (CHANGES, lift)
+      this.fret = 0;
+      this.startGlide(this.noteN(0), glideLen);
+      const f0 = this.fs / this.noteN(0);
+      const sigma = att * 0.11512925464970229 / tg;      // dB -> 1/s
+      [this.tgtB0, this.tgtA1] = designLossFilter(f0, sigma, 3e-4 * this.hfDampCached, this.fs);
+      [this.tgtB0H, this.tgtA1H] = designLossFilter(f0, sigma, 3e-4 * this.hfDampCached, this.fs);
+      this.lossRate = this.rateFast;
+      this.relLift = lift;
+      this.relStage = 1;
+      this.relLeft = glideLen;
+      this.relPlopSigma = 45 + 30 * rP;
+      this.relPlopLen = Math.max(1, ((0.030 + 0.020 * rS) * this.fs) | 0);
+    }
     let click;
     if (noteLen < 0.08) { this.shortToggle = !this.shortToggle; click = this.shortToggle; }
     else click = noteLen <= 4.0;
@@ -11137,7 +11131,7 @@ class ChordEngine {
     if (rp.tFirstLand >= 0) return rp.tFirstLand;
     return rp.tFrom + Math.trunc((rp.tS - rp.tFrom) / 2);
   }
-  // REGRIP ohne CHANGES: der Finger daempft beim Loesen (mit RELEASE: Plopp der Leersaite)
+  // REGRIP ohne CHANGES: der Finger daempft beim Loesen (mit RELEASE seit 1.6.3 nur der Hautklick)
   regripPlain(prev, f, rp) {
     let handled = 0;
     for (let s = 0; s < 6; ++s) {
@@ -13757,7 +13751,7 @@ const TOGGLES = [
   // 1.5: Reiter DETAIL - Griffwechsel und Nebengeraeusche (wie kToggles im Plugin)
   ['regrip', 'REGRIP', 2, 'Chord changes as a sequence, like a real hand: common notes stay held, the other fingers let go one by one (index finger and barre last), the new fingers land just before the stroke (barre last) - a hard change lands a few ms late (more with LOOSE); in the patterns the old chord rings until just before the next step'],
   ['ghost', 'GHOST', 2, 'Ghost strokes: when you let go of a chord, the strumming hand keeps moving - now and then a muted scratch falls into the gap before the next chord (DOWN, STRUM and the strummed patterns)'],
-  ['release', 'RELEASE', 2, 'Fret release: a finger leaving the fret lets the string jump to the open note - a short, dull pitched plop and a faint skin click (notes from 80 ms to 4 s)'],
+  ['release', 'RELEASE', 2, 'Fret release: a faint skin click as the finger leaves the fret (notes from 80 ms to 4 s); the note fades under the hand'],
   ['pick', 'PICK', 2, 'Pick contact: the pick scrapes from the moment it touches the string, hard strokes push shorter, a string hit from the neighbouring string sounds shorter, and the hand sits a little differently on every stroke - now and then a hard downstroke clicks on the pickguard or taps the top'],
   ['pickupHum', 'PICKUP HUM', 2, 'Mains hum picked up by the pickup: loud with P-90 single coils, 20 dB quieter with humbuckers - it drops by 8 dB while your hands touch the strings and comes back in the pauses'],
   ['micro', 'MICROPHONIC', 2, 'Unpotted, microphonic pickup: the hollow body and every tap on it come through the pickup'],
